@@ -34,6 +34,7 @@ RUN cp /usr/bin/caddy /caddy
 # The JavaScript build is the same for every CPU, so it runs once on the build
 # host's own; only the Data engine's native tree below follows the image's CPU.
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
+ENV NODE_OPTIONS=--max-old-space-size=3072
 WORKDIR /src
 # pinned to package.json#packageManager; corepack is being removed from Node
 RUN npm install -g pnpm@10.33.0
