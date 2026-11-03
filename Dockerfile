@@ -192,21 +192,56 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
 USER root
 CMD ["node", "/app/dist-server/cloud-home-start.js"]
 
-# The self-hosted server, last so a plain `docker build .` builds it.
+# # The self-hosted server, last so a plain `docker build .` builds it.
+# FROM runtime AS server
+# # Optional engine CLIs baked into the image (space-separated npm packages).
+# ARG ENGINES=""
+# RUN if [ -n "$ENGINES" ]; then HOME=/tmp/omb-build-home npm install -g $ENGINES && rm -rf /tmp/omb-build-home /tmp/node-compile-cache; fi
+# COPY --from=build --chown=maus:maus /src/dist-native/duckdb/target ./duckdb
+# COPY --from=build --chown=maus:maus /src/dist-server ./dist-server
+# COPY --from=build --chown=maus:maus /src/dist ./dist
+# COPY --from=build --chown=maus:maus /src/skills ./skills
+# ENV HOME=/data
+# VOLUME ["/data"]
+# USER maus
+# HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+#   CMD curl -sf http://127.0.0.1:8799/api/health | grep -q openmausbot || exit 1
+# # The launcher runs dist-server/index.js and starts it again when it asks to
+# # (a copied workspace committing, server/restart.ts), so the container, and a
+# # Caddy sharing its network, stays up through that restart.
+# CMD ["node", "dist-server/server-launcher.js"]
+
+# The self-hosted server
 FROM runtime AS server
-# Optional engine CLIs baked into the image (space-separated npm packages).
+
 ARG ENGINES=""
-RUN if [ -n "$ENGINES" ]; then HOME=/tmp/omb-build-home npm install -g $ENGINES && rm -rf /tmp/omb-build-home /tmp/node-compile-cache; fi
+RUN if [ -n "$ENGINES" ]; then \
+      HOME=/tmp/omb-build-home npm install -g $ENGINES \
+      && rm -rf /tmp/omb-build-home /tmp/node-compile-cache; \
+    fi
+
+# Copy the existing Caddy binary
+COPY --from=edge /caddy /usr/local/bin/caddy
+
+# Copy application files
 COPY --from=build --chown=maus:maus /src/dist-native/duckdb/target ./duckdb
 COPY --from=build --chown=maus:maus /src/dist-server ./dist-server
 COPY --from=build --chown=maus:maus /src/dist ./dist
 COPY --from=build --chown=maus:maus /src/skills ./skills
+
+# Add Caddy configuration and process launcher
+COPY --chown=maus:maus Caddyfile /etc/caddy/Caddyfile
+COPY --chown=maus:maus start.mjs ./start.mjs
+
 ENV HOME=/data
+
 VOLUME ["/data"]
+
+EXPOSE 8082
+
 USER maus
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -sf http://127.0.0.1:8799/api/health | grep -q openmausbot || exit 1
-# The launcher runs dist-server/index.js and starts it again when it asks to
-# (a copied workspace committing, server/restart.ts), so the container, and a
-# Caddy sharing its network, stays up through that restart.
-CMD ["node", "dist-server/server-launcher.js"]
+  CMD curl -sf http://127.0.0.1:8082/api/health | grep -q openmausbot || exit 1
+
+CMD ["node", "start.mjs"]
